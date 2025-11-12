@@ -65,18 +65,6 @@ class ProxyServer:
     # handler da conexao
     async def handle_connect(self, reader, writer, path):
         try:
-            host, port = path.split(':')
-            port = int(port)
-            writer.write(b'HTTP/1.1 200 Connection Established\r\n\r\n')
-            await writer.drain()
-            ssl_ctx = ssl.create_default_context()
-            ssl_ctx.check_hostname = False
-            ssl_ctx.verify_mode = ssl.CERT_NONE
-            tun_reader, tun_writer = await asyncio.open_connection(host, port, ssl=ssl_ctx)
-            await asyncio.gather(
-                self.tunnel(reader, tun_writer),
-                self.tunnel(tun_reader, writer)
-            )
         except Exception as e:
             logging.exception(f'[CONNECT error]: {e}')
         finally:
@@ -101,37 +89,6 @@ class ProxyServer:
     async def shoot(self, method, path, head, body, param, payload, filters):
         async with self.sem:
             try:
-                new_path = path.replace(f'§{param}§', payload)
-                new_head = head.replace(f'§{param}§'.encode(), payload.encode())
-                new_body = body.replace(f'§{param}§'.encode(), payload.encode())
-                if method in ('GET', 'POST') and '§' not in new_path and '§' not in new_body.decode():
-                    if method == 'GET':
-                        q = parse_qs(urlparse(new_path).query)
-                        q[param] = payload
-                        new_path = new_path.split('?')[0] + '?' + urlencode(q, doseq=True)
-                    else:
-                        q = parse_qs(new_body.decode())
-                        q[param] = payload
-                        new_body = urlencode(q, doseq=True).encode()
-
-                reader, writer = await self.get_connection(self.host, self.port, ssl=self.port == 443)
-                writer.write(b'%s %s HTTP/1.1\r\n%s\r\n%s' % (method.encode(), new_path.encode(), new_head, new_body))
-                await writer.drain()
-                resp_head = await self.recv_headers(reader)
-                resp_body = await self.recv_body(reader, resp_head)
-                status = int(resp_head.split()[1])
-                size = len(resp_body)
-
-                match = True
-                if 'status' in filters and status != int(filters['status']):
-                    match = False
-                if 'size' in filters and not eval(f'{size}{filters["size"]}'):
-                    match = False
-                if 'regex' in filters and not re.search(filters['regex'], resp_body.decode(), re.I):
-                    match = False
-
-                if match:
-                    logging.info(f'[fuzz hit] {payload[:30]} -> {status} {size}b')
             except Exception as e:
                 logging.exception(f'[fuzz error] {payload[:30]}: {e}')
 
@@ -143,24 +100,6 @@ class ProxyServer:
     # handler do cliente...
     async def handle_client(self, reader, writer):
         try:
-            head = await self.recv_headers(reader)
-            if not head:
-                return
-            lines = head.decode().splitlines()
-            method, path, _ = lines[0].split(' ', 2)
-            if method.upper() == 'CONNECT':
-                await self.handle_connect(reader, writer, path)
-                return
-            body = await self.recv_body(reader, head)
-            logging.info(f'[>] {method} {path}')
-
-            reader_srv, writer_srv = await self.get_connection(self.host, self.port, ssl=self.port == 443)
-            writer_srv.write(head + body)
-            await writer_srv.drain()
-            resp_head = await self.recv_headers(reader_srv)
-            resp_body = await self.recv_body(reader_srv, resp_head)
-            writer.write(resp_head + resp_body)
-            await writer.drain()
         except Exception as e:
             logging.exception(f'[client error]: {e}')
         finally:
@@ -173,20 +112,7 @@ class ProxyServer:
             return
         while True:
             try:
-                cmd = await aioconsole.ainput('')
-                cmd = cmd.strip()
-                if cmd.startswith('i '):
-                    parts = cmd.split()
-                    param, file = parts[1], parts[2]
-                    filters = {}
-                    for f in parts[3:]:
-                        if '=' in f:
-                            k, v = f.split('=', 1)
-                            filters[k] = v
-                    with open(file) as f:
-                        wlist = f.read().splitlines()
-                    method, path, head, body = 'GET', '/?§param§=test', b'Host: example.com\r\n\r\n', b''
-                    await self.intruder(method, path, head, body, param, wlist, filters)
+               
             except Exception as e:
                 logging.exception(f'[cmd error]: {e}')
 
