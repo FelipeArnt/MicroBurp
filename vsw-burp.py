@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 
+# |----|LABELO/VSW|----|@author:FelipeArnt|----|
+# PocketBurp - Ferramenta para Ensaios Funcionais de Segurança Cibernética.
+# O script foi baseado no BurpSuite, focando nas funções de captura de tráfego e envio de payloads. [PROXY e INTRUDER]
+
 import asyncio, sys, socket, re, gzip, io, logging, argparse
 from urllib.parse import parse_qs, urlencode, urlparse
 import ssl
